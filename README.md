@@ -5,6 +5,11 @@ A DIY ESP32-powered robot project controlled by a PlayStation 5 controller. This
 
 This repository provides the code and resources to build a simple, affordable robot car powered by an ESP32 and controlled via a PlayStation controller. It’s designed as a fun and accessible entry into robotics—perfect for hobbyists, families, and anyone interested in learning more about microcontrollers and automation. Check out the code, explore the included documentation, and be inspired by the three working prototypes shown in the project image!
 
+## Video of my robot cars
+The video shows the threee already build robot cars.
+[![Watch the video](https://img.youtube.com/vi/rjLNLjAc0GY/0.jpg)](https://youtu.be/rjLNLjAc0GY)
+
+
 ## Hardware Used
 A short overview and the whole list is available and updated on my blog: 
 [Hardware list for the ESP32 robot car](https://custom-build-robots.com/roboter/esp-32-dev-kit-c-v4-roboter-auto-selber-bauen-elektronik-und-bauteile/14752).
