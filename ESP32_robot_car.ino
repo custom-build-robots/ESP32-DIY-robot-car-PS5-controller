@@ -1,15 +1,14 @@
 /***************************************************
  * Author: Ingmar Stapel
  * Website: www.custom-build-robots.com
- * Date: 2024-12-15
- * Version: 1.2
+ * Date: 2025-04-12
+ * Version: 1.6
  * Description:
  * This program enables your ESP32-based robot car to be
- * controlled via a PlayStation 4 or 5 controller using the
- * Bluepad32 library. Includes an inversion option
- * for adaptable control directions and a deadzone for
- * joystick neutrality.Now includes WS2812 LED ring
- * control with multiple lighting modes.
+ * controlled via a PlayStation 4/5 controller using the
+ * Bluepad32 library. It now supports 12 LEDs (6 front and
+ * 6 back) with enhanced LED modes for police and speed
+ * (rainbow / brake and accelerate) effects.
  ****************************************************/
 
 #include <WiFi.h>
@@ -32,7 +31,7 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 // ----------------------------
 // Robot Name
 // ----------------------------
-const String ROBOT_NAME = "Blitzy rush";
+const String ROBOT_NAME = "Blue Truck";
 
 // ----------------------------
 // Motor Speeds (-100 to 100)
@@ -61,30 +60,37 @@ const bool invert_controls = false; // Set to 'true' to invert controls
 // ----------------------------
 const int direction_multiplier = invert_controls ? -1 : 1;
 
-
-
 // ----------------------------
 // NeoPixel LED Ring Setup
 // ----------------------------
-#define LED_PIN 16
-#define NUM_LEDS 24
+// Using 12 LEDs: 6 for the front and 6 for the back
+#define LED_PIN 5
+#define NUM_LEDS 12 
 Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 enum LedMode {
   OFF_MODE,
   AMBIENT_MODE,
   SPEED_INDICATOR_MODE,
-  POLICE_MODE
+  POLICE_MODE,
+  WHITE_MODE         
 };
 
-LedMode currentLedMode = AMBIENT_MODE; // Start with ambient mode
+LedMode currentLedMode = AMBIENT_MODE; // Start with ambient / rainbow mode
 
-// For button state tracking
-bool prev_a = false;
-bool prev_b = false;
-bool prev_x = false;
-bool prev_y = false;
-
+// ----------------------------
+// Helper Function: Get LED Mode Name
+// ----------------------------
+String ledModeName(LedMode mode) {
+  switch (mode) {
+    case OFF_MODE: return "Off";
+    case AMBIENT_MODE: return "Ambient";
+    case SPEED_INDICATOR_MODE: return "Speed";
+    case POLICE_MODE: return "Police";
+    case WHITE_MODE: return "White";
+    default: return "Unknown";
+  }
+}
 
 // ----------------------------
 // Deadzone Configuration
@@ -95,6 +101,15 @@ const int DEADZONE = 10; // Deadzone range (-10 to 10)
 // Bluepad32 Controller Setup
 // ----------------------------
 ControllerPtr myControllers[BP32_MAX_GAMEPADS];
+
+void updateDisplayStatus() {
+  display.clear();
+  display.drawString(0, 0, ROBOT_NAME);
+  display.drawString(0, 10, "LED: " + ledModeName(currentLedMode));
+  display.drawString(0, 20, "Ctrl Connected");
+  display.drawString(0, 30, "L:" + String(speed_left) + "% R:" + String(speed_right) + "%");
+  display.display();
+}
 
 void onConnectedController(ControllerPtr ctl) {
   bool foundEmptySlot = false;
@@ -109,12 +124,9 @@ void onConnectedController(ControllerPtr ctl) {
   if (!foundEmptySlot) {
     Serial.println("Controller connected, but no empty slot found");
   }
-
-  // Display controller connection status on OLED
-  display.clear();
-  display.drawString(0, 0, ROBOT_NAME);
-  display.drawString(0, 20, "Controller Connected");
-  display.display();
+  
+  // Update OLED on connection
+  updateDisplayStatus();
 }
 
 void onDisconnectedController(ControllerPtr ctl) {
@@ -138,10 +150,10 @@ void onDisconnectedController(ControllerPtr ctl) {
   updateMotorPWM("right", speed_right);
   Serial.println("Controller disconnected. Motors stopped.");
 
-  // Update OLED to reflect controller disconnection
+  // Update OLED to reflect disconnection
   display.clear();
   display.drawString(0, 0, ROBOT_NAME);
-  display.drawString(0, 20, "Controller Disconnected");
+  display.drawString(0, 20, "Ctrl Disconnected");
   display.display();
 }
 
@@ -189,37 +201,20 @@ void processGamepad(ControllerPtr ctl) {
 
   lastCommandTime = millis(); // Reset command timeout
 
-  // Optional: Print speeds for debugging
+  // Print speeds for debugging
   Serial.printf("Speed Left: %d, Speed Right: %d\n", speed_left, speed_right);
 
+  // Always update the OLED display with new speeds
+  updateDisplayStatus();
 
-  // Handle LED mode switching
-  if (ctl->x() && !prev_x) {
-    currentLedMode = AMBIENT_MODE;
-    Serial.println("LED Mode: AMBIENT_MODE");
+  // Check for LED mode change using the Square button.
+  // For PS4 controllers using Bluepad32, the Square button is typically mapped to ctl->x()
+  if (ctl->x()) {
+    currentLedMode = (LedMode)((currentLedMode + 1) % 5); // 5 modes now
+    Serial.println("LED Mode changed to: " + ledModeName(currentLedMode));
+    updateDisplayStatus();
+    delay(200); // Simple debounce delay
   }
-
-  if (ctl->y() && !prev_y) {
-    currentLedMode = SPEED_INDICATOR_MODE;
-    Serial.println("LED Mode: SPEED_INDICATOR_MODE");
-  }
-
-  if (ctl->b() && !prev_b) {
-    currentLedMode = POLICE_MODE;
-    Serial.println("LED Mode: POLICE_MODE");
-  }
-
-  if (ctl->a() && !prev_a) {
-    currentLedMode = OFF_MODE;
-    Serial.println("LED Mode: OFF_MODE");
-  }
-
-  // Update previous button states
-  prev_x = ctl->x();
-  prev_y = ctl->y();
-  prev_b = ctl->b();
-  prev_a = ctl->a();
-
 }
 
 // ----------------------------
@@ -233,13 +228,11 @@ void setup() {
 
   Serial.println("Initializing OLED Display");
   display.init();
-  display.flipScreenVertically();
+  // display.flipScreenVertically();
   display.setFont(ArialMT_Plain_10);
 
-  // Display Robot Name
-  display.drawString(0, 0, ROBOT_NAME);
-  display.drawString(0, 20, "Initializing...");
-  display.display();
+  // Display Robot Name and initial status
+  updateDisplayStatus();
 
   // Initialize PCA9685
   pwm.begin();
@@ -264,13 +257,17 @@ void setup() {
   display.display();
 
   Serial.println("Setup complete. Waiting for controller...");
+
+  // Initialize the LED strip
+  strip.begin();
+  strip.show();
 }
 
 // ----------------------------
 // Loop Function
 // ----------------------------
 void loop() {
-  // Update Bluepad32
+  // Update Bluepad32 and process controller data
   bool dataUpdated = BP32.update();
   if (dataUpdated) {
     processControllers();
@@ -293,12 +290,12 @@ void loop() {
     }
   }
 
-  updateLEDs(); // Update the LEDs based on current mode
+  // Update the LED strip animations
+  updateLEDs();
 
   // Yield to lower priority tasks
   delay(1);
 }
-
 
 // ----------------------------
 // Update LEDs Based on Current Mode
@@ -309,29 +306,30 @@ void updateLEDs() {
 
   switch (currentLedMode) {
     case OFF_MODE:
-      // Turn off all LEDs
       strip.clear();
       strip.show();
       break;
 
     case AMBIENT_MODE:
-      // Implement color cycling or rainbow effect
       if (currentMillis - previousMillis >= 50) { // Update every 50ms
         previousMillis = currentMillis;
         static uint16_t hue = 0;
-        for (int i = 0; i < strip.numPixels(); i++) {
-          // Create a rainbow effect along the strip
-          uint32_t color = strip.gamma32(strip.ColorHSV(hue + (i * 65536L / strip.numPixels())));
+        // Front group (LEDs 0-5)
+        for (int i = 0; i < 6; i++) {
+          uint32_t color = strip.gamma32(strip.ColorHSV(hue + (i * 65536L / 6)));
+          strip.setPixelColor(i, color);
+        }
+        // Back group (LEDs 6-11) with a slight hue offset for separation
+        for (int i = 6; i < 12; i++) {
+          uint32_t color = strip.gamma32(strip.ColorHSV(hue + ((i - 6) * 65536L / 6) + 1000));
           strip.setPixelColor(i, color);
         }
         strip.show();
-        hue += 256; // Increment hue
+        hue += 1536; // Increase hue three times faster than before
       }
       break;
 
-    case SPEED_INDICATOR_MODE:
-      // Indicate speed and direction
-      // Update only when speed changes
+    case SPEED_INDICATOR_MODE: {
       static int prev_speed_left = 0;
       static int prev_speed_right = 0;
       if (speed_left != prev_speed_left || speed_right != prev_speed_right) {
@@ -341,57 +339,68 @@ void updateLEDs() {
         // Calculate average speed
         int avg_speed = (abs(speed_left) + abs(speed_right)) / 2;
 
-        // Map speed to number of LEDs to light up
-        int num_leds = map(avg_speed, 0, 100, 0, strip.numPixels());
+        // Map speed to number of LEDs per group (0 to 6)
+        int num_leds_group = map(avg_speed, 0, 100, 0, 6);
 
-        // Set color based on direction
         uint32_t color;
         if (speed_left > 0 && speed_right > 0) {
-          // Forward - Green
-          color = strip.Color(0, 255, 0);
+          color = strip.Color(0, 255, 0); // Forward - Green
         } else if (speed_left < 0 && speed_right < 0) {
-          // Backward - Red
-          color = strip.Color(255, 0, 0);
+          color = strip.Color(255, 0, 0); // Backward - Red
         } else if (speed_left > speed_right) {
-          // Turning Right - Blue
-          color = strip.Color(0, 0, 255);
+          color = strip.Color(0, 0, 255); // Turning Right - Blue
         } else if (speed_left < speed_right) {
-          // Turning Left - Yellow
-          color = strip.Color(255, 255, 0);
+          color = strip.Color(255, 255, 0); // Turning Left - Yellow
         } else {
-          // Stopped or other - White
-          color = strip.Color(255, 255, 255);
+          color = strip.Color(255, 255, 255); // Stopped or other - White
         }
 
-        // Light up LEDs
         strip.clear();
-        for (int i = 0; i < num_leds; i++) {
+        // Update front group LEDs (indices 0-5)
+        for (int i = 0; i < num_leds_group; i++) {
+          strip.setPixelColor(i, color);
+        }
+        // Update back group LEDs (indices 6-11)
+        for (int i = 6; i < 6 + num_leds_group; i++) {
           strip.setPixelColor(i, color);
         }
         strip.show();
       }
       break;
+    }
 
     case POLICE_MODE:
-      // Simulate police lights
       if (currentMillis - previousMillis >= 200) { // Update every 200ms
         previousMillis = currentMillis;
         static bool toggle = false;
         strip.clear();
         if (toggle) {
-          // Blue flash
-          for (int i = 0; i < strip.numPixels() / 2; i++) {
+          // Front: Blue, Back: Red
+          for (int i = 0; i < 6; i++) {
             strip.setPixelColor(i, strip.Color(0, 0, 255));
           }
-        } else {
-          // Red flash
-          for (int i = strip.numPixels() / 2; i < strip.numPixels(); i++) {
+          for (int i = 6; i < 12; i++) {
             strip.setPixelColor(i, strip.Color(255, 0, 0));
+          }
+        } else {
+          // Front: Red, Back: Blue
+          for (int i = 0; i < 6; i++) {
+            strip.setPixelColor(i, strip.Color(255, 0, 0));
+          }
+          for (int i = 6; i < 12; i++) {
+            strip.setPixelColor(i, strip.Color(0, 0, 255));
           }
         }
         strip.show();
         toggle = !toggle;
       }
+      break;
+
+    case WHITE_MODE:
+      for (int i = 0; i < 12; i++) {
+        strip.setPixelColor(i, strip.Color(255, 255, 255));
+      }
+      strip.show();
       break;
   }
 }
@@ -411,7 +420,6 @@ void set_motor_mode(String motor, String motor_direction) {
       Serial.println("left | backward");
     }
   }
-
   if (motor == "right") {
     if (motor_direction == "forward") {
       pwm.setPWM(4, 0, 4096);
@@ -439,9 +447,8 @@ void updateMotorPWM(String motor, int speed) {
       pwm.setPWM(0, 0, map(-speed, 0, 100, 0, MAX_PWM));
       Serial.println("Left PWM: " + String(map(-speed, 0, 100, 0, MAX_PWM)));
     } else {
-      // Stop the motor
-      set_motor_mode("left", "backward"); // Assuming stopping by setting both directions to backward
-      pwm.setPWM(0, 0, 0); // Stop PWM signal
+      set_motor_mode("left", "backward");
+      pwm.setPWM(0, 0, 0);
       Serial.println("Left Motor Stopped.");
     }
   } else if (motor == "left") {
@@ -454,9 +461,8 @@ void updateMotorPWM(String motor, int speed) {
       pwm.setPWM(5, 0, map(-speed, 0, 100, 0, MAX_PWM));
       Serial.println("Right PWM: " + String(map(-speed, 0, 100, 0, MAX_PWM)));
     } else {
-      // Stop the motor
-      set_motor_mode("right", "backward"); // Assuming stopping by setting both directions to backward
-      pwm.setPWM(5, 0, 0); // Stop PWM signal
+      set_motor_mode("right", "backward");
+      pwm.setPWM(5, 0, 0);
       Serial.println("Right Motor Stopped.");
     }
   }
